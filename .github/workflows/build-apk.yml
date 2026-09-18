@@ -23,20 +23,16 @@ jobs:
       - name: Locate Android SDK
         shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-
           SDKMANAGER=$(find /usr/local/lib/android/sdk/cmdline-tools \
             -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)
 
           if [ -z "$SDKMANAGER" ]; then
             echo "sdkmanager not found"
-            find /usr/local/lib/android/sdk -maxdepth 4 -type f -name sdkmanager || true
             exit 1
           fi
 
-          echo "Found: $SDKMANAGER"
           echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "Found SDK manager: $SDKMANAGER"
 
       - name: Install Android SDK packages
         shell: bash
@@ -53,12 +49,56 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build APK
-        run: gradle --no-daemon :app:assembleDebug
-
-      - name: Rename APK
+      - name: Locate Gradle project
+        shell: bash
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Gamification-v2.54.apk
+          echo "Searching for Gradle project..."
+
+          SETTINGS_FILE=$(find . \
+            -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -not -path "./.git/*" \
+            | head -n 1)
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERROR: settings.gradle not found"
+            echo "Repository files:"
+            find . -maxdepth 4 -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+
+          echo "Gradle project found at: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Build APK
+        shell: bash
+        run: |
+          echo "Building project from: $PROJECT_DIR"
+
+          gradle \
+            -p "$PROJECT_DIR" \
+            --no-daemon \
+            :app:assembleDebug
+
+      - name: Locate APK
+        shell: bash
+        run: |
+          APK_FILE=$(find "$PROJECT_DIR" \
+            -type f \
+            -path "*/build/outputs/apk/debug/*.apk" \
+            | head -n 1)
+
+          if [ -z "$APK_FILE" ]; then
+            echo "ERROR: APK not found"
+            find "$PROJECT_DIR" -type f -name "*.apk" || true
+            exit 1
+          fi
+
+          echo "APK found: $APK_FILE"
+
+          cp "$APK_FILE" Gamification-v2.54.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
